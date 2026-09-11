@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Email Triage">
+    <meta name="theme-color" content="#0056b3">
+    <title>Email Triage PWA</title>
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Email Triage%22,%22short_name%22:%22Triage%22,%22display%22:%22standalone%22,%22start_url%22:%22/%22,%22scope%22:%22/%22,%22theme_color%22:%22%230056b3%22,%22background_color%22:%22%23f8fafc%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 192 192%27%3E%3Crect fill=%27%230056b3%27 width=%27192%27 height=%27192%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 font-size=%27100%27 fill=%27white%27 font-family=%27system-ui%27%3E📧%3C/text%3E%3C/svg%3E%22,%22sizes%22:%22192x192%22,%22type%22:%22image/svg+xml%22},{%22src%22:%22data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect fill=%27%230056b3%27 width=%27512%27 height=%27512%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 font-size=%27300%27 fill=%27white%27 font-family=%27system-ui%27%3E📧%3C/text%3E%3C/svg%3E%22,%22sizes%22:%22512x512%22,%22type%22:%22image/svg+xml%22}]}">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            position: fixed;
+            overflow: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        #root { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        
+        .header {
+            background: linear-gradient(135deg, #0056b3 0%, #003d82 100%);
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .tabs { display: flex; background: white; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
+        .tab { flex: 1; padding: 0.875rem; text-align: center; background: 0; border: none; cursor: pointer; font-weight: 500; color: #64748b; font-size: 0.875rem; }
+        .tab.active { color: #0056b3; border-bottom: 3px solid #0056b3; }
+        
+        .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 1rem; }
+        
+        .launch-btn {
+            width: 100%;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #0056b3, #003d82);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 12px rgba(0,86,179,0.3);
+            transition: transform 0.2s;
+        }
+        .launch-btn:active { transform: translateY(2px); }
+        
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 4px solid #0056b3;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .stat-value { font-size: 2.5rem; font-weight: 700; color: #0056b3; }
+        .stat-label { font-size: 0.875rem; color: #64748b; margin-top: 0.5rem; }
+        
+        .email-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+        }
+        .email-from { font-weight: 600; margin-bottom: 0.75rem; }
+        .email-subject { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem; line-height: 1.4; }
+        .email-preview { color: #64748b; font-size: 0.875rem; padding: 0.75rem; background: #f1f5f9; border-radius: 6px; margin-bottom: 1rem; }
+        
+        .decision-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        .btn {
+            padding: 0.75rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        .btn-file { background: #10b981; color: white; }
+        .btn-delete { background: #ef4444; color: white; }
+        .btn-skip { background: #6b7280; color: white; }
+        .btn:active { opacity: 0.8; }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: flex-end;
+            z-index: 1000;
+        }
+        .modal {
+            background: white;
+            width: 100%;
+            max-height: 90vh;
+            border-radius: 16px 16px 0 0;
+            padding: 1.5rem;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .modal-item {
+            padding: 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            cursor: pointer;
+        }
+        .modal-item:active { background: #f0f8ff; }
+        
+        .toast {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            right: 1rem;
+            padding: 1rem;
+            background: #1e293b;
+            color: white;
+            border-radius: 8px;
+            z-index: 999;
+        }
+        .toast.success { background: #10b981; }
+        .toast.error { background: #dc2626; }
+        
+        .offline-banner {
+            background: #fca5a5;
+            color: #7f1d1d;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <header class="header">
+            <h1>📧 Email Triage</h1>
+            <button onclick="alert('Settings')" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 8px; cursor: pointer;">⚙️</button>
+        </header>
+        <div class="main">
+            <div id="app"></div>
+        </div>
+    </div>
+
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/react-dom.production.min.js"></script>
+
+    <script>
+        const { useState, useEffect } = React;
+        const AIRTABLE_BASE_ID = 'appxjiuh85jwY8bKO';
+        const TABLES = { CATEGORIES: 'tblcfRSlMxBl5d0Yu', PENDING: 'tbl6xMBhSmwZG1VFp' };
+        const FIELDS = {
+            CATEGORY_NAME: 'fldacsrbrqKJhP5HT',
+            CATEGORY_LABEL: 'flde1THJbFcZRR2rB',
+            CATEGORY_DISPOSITION: 'fld5LXzRufnzKQbvA',
+            SUGGESTED_CAT: 'fldDahr5RSiYnA5Aa',
+            QUEUED_AT: 'fldbx9FK8V7WclHZs',
+        };
+
+        async function airtableFetch(table, options = {}) {
+            const pat = localStorage.getItem('airtable_pat');
+            if (!pat) throw new Error('No Airtable PAT configured');
+            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${table}`;
+            const res = await fetch(url, {
+                ...options,
+                headers: { 'Authorization': `Bearer ${pat}`, 'Content-Type': 'application/json', ...options.headers }
+            });
+            if (!res.ok) throw new Error(`Airtable: ${res.status}`);
+            return res.json();
+        }
+
+        function App() {
+            const [view, setView] = useState('home');
+            const [tab, setTab] = useState('overview');
+            const [loading, setLoading] = useState(true);
+            const [online, setOnline] = useState(navigator.onLine);
+            const [toast, setToast] = useState(null);
+            const [categories, setCategories] = useState([]);
+            const [emails, setEmails] = useState([]);
+            const [index, setIndex] = useState(0);
+            const [modal, setModal] = useState(null);
+            const [selectedCat, setSelectedCat] = useState(null);
+
+            useEffect(() => {
+                loadData();
+                window.addEventListener('online', () => setOnline(true));
+                window.addEventListener('offline', () => setOnline(false));
+            }, []);
+
+            async function loadData() {
+                try {
+                    const [cats, emls] = await Promise.all([
+                        airtableFetch(TABLES.CATEGORIES),
+                        airtableFetch(TABLES.PENDING),
+                    ]);
+                    setCategories(cats.records.map(r => ({
+                        id: r.id,
+                        name: r.fields[FIELDS.CATEGORY_NAME] || 'Unnamed',
+                        disposition: r.fields[FIELDS.CATEGORY_DISPOSITION],
+                    })));
+                    setEmails(emls.records.map(r => ({
+                        id: r.id,
+                        sender: r.fields['fldSender'] || 'Unknown',
+                        subject: r.fields['fldSubject'] || '(No subject)',
+                        snippet: (r.fields['fldSnippet'] || '').slice(0, 100),
+                        queuedAt: r.fields[FIELDS.QUEUED_AT] || new Date().toISOString(),
+                    })));
+                } catch (e) {
+                    showToast(`Error: ${e.message}`, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            }
+
+            async function handleFile() {
+                if (!selectedCat) return;
+                try {
+                    const cat = categories.find(c => c.id === selectedCat);
+                    await airtableFetch(`${TABLES.PENDING}/${emails[index].id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ fields: { Status: 'Decided', Category: cat.name } })
+                    });
+                    showToast(`✓ Filed to ${cat.name}`, 'success');
+                    setIndex((index + 1) % emails.length);
+                    setModal(null);
+                } catch (e) {
+                    showToast(`Error: ${e.message}`, 'error');
+                }
+            }
+
+            function handleSkip() {
+                setIndex((index + 1) % emails.length);
+            }
+
+            function showToast(msg, type) {
+                setToast({ msg, type });
+                setTimeout(() => setToast(null), 3000);
+            }
+
+            if (loading) return React.createElement('div', { className: 'content' }, 'Loading...');
+
+            const email = emails[index];
+
+            return React.createElement(React.Fragment, null,
+                view === 'home' && React.createElement(React.Fragment, null,
+                    React.createElement('div', { className: 'tabs' },
+                        React.createElement('button', { className: `tab ${tab === 'overview' ? 'active' : ''}`, onClick: () => setTab('overview') }, 'Overview'),
+                        React.createElement('button', { className: `tab ${tab === 'history' ? 'active' : ''}`, onClick: () => setTab('history') }, 'History')
+                    ),
+                    React.createElement('div', { className: 'content' },
+                        React.createElement('button', { className: 'launch-btn', onClick: () => setView('triage') }, `▶ Start triage\n${emails.length} pending`),
+                        React.createElement('div', { className: 'stat-card' },
+                            React.createElement('div', { className: 'stat-value' }, emails.length),
+                            React.createElement('div', { className: 'stat-label' }, 'Emails pending')
+                        )
+                    )
+                ),
+                view === 'triage' && email && React.createElement(React.Fragment, null,
+                    React.createElement('div', { className: 'tabs' },
+                        React.createElement('button', { className: 'tab active' }, 'Triage')
+                    ),
+                    React.createElement('div', { className: 'content' },
+                        !online && React.createElement('div', { className: 'offline-banner' }, '📡 Offline mode'),
+                        React.createElement('div', { className: 'email-card' },
+                            React.createElement('div', { className: 'email-from' }, `👤 ${email.sender}`),
+                            React.createElement('div', { className: 'email-subject' }, email.subject),
+                            React.createElement('div', { className: 'email-preview' }, email.snippet || '(No preview)'),
+                            React.createElement('div', { className: 'decision-btns' },
+                                React.createElement('button', { className: 'btn btn-file', onClick: () => setModal('cat') }, '📁 File'),
+                                React.createElement('button', { className: 'btn btn-delete', onClick: () => setModal('del') }, '🗑️ Delete'),
+                                React.createElement('button', { className: 'btn btn-skip', onClick: handleSkip }, '⏭️ Skip')
+                            )
+                        ),
+                        React.createElement('button', { className: 'launch-btn', onClick: () => setView('home'), style: { marginTop: '1rem' } }, '← Back')
+                    )
+                ),
+                modal === 'cat' && React.createElement('div', { className: 'modal-overlay' },
+                    React.createElement('div', { className: 'modal', onClick: e => e.stopPropagation() },
+                        React.createElement('h3', { style: { marginBottom: '1rem' } }, 'Select Category'),
+                        categories.map(c => React.createElement('div', {
+                            key: c.id,
+                            className: 'modal-item',
+                            onClick: () => setSelectedCat(c.id),
+                            style: { background: selectedCat === c.id ? '#dbeafe' : 'white', borderColor: selectedCat === c.id ? '#0056b3' : '#e2e8f0' }
+                        }, c.name)),
+                        React.createElement('button', { className: 'launch-btn', onClick: handleFile }, 'Confirm'),
+                        React.createElement('button', { className: 'launch-btn', style: { background: '#6b7280' }, onClick: () => setModal(null) }, 'Cancel')
+                    )
+                ),
+                toast && React.createElement('div', { className: `toast ${toast.type}` }, toast.msg)
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+
+        // Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register(new Blob([`
+                self.addEventListener('install', e => e.waitUntil(caches.open('v1').then(c => c.add('/').catch(() => {}))));
+                self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request) || caches.match('/'))));
+            `], { type: 'application/javascript' }), { scope: '/' }).catch(() => {});
+        }
+    </script>
+</body>
+</html>
