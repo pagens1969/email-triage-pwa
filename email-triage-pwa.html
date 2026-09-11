@@ -386,7 +386,15 @@
         // Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register(new Blob([`
-                self.addEventListener('install', e => e.waitUntil(caches.open('v1').then(c => c.add('/').catch(() => {}))));
+                const CACHE_VERSION = 'v2';
+                self.addEventListener('install', e => {
+                    e.waitUntil(caches.open(CACHE_VERSION).then(c => c.add('/').catch(() => {})));
+                    self.skipWaiting();
+                });
+                self.addEventListener('activate', e => {
+                    e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => k !== CACHE_VERSION && caches.delete(k)))));
+                    self.clients.claim();
+                });
                 self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request) || caches.match('/'))));
             `], { type: 'application/javascript' }), { scope: '/' }).catch(() => {});
         }
