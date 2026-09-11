@@ -1,4 +1,4 @@
-# Email Triage PWA
+# Pigeonhole (email triage PWA)
 
 Live: https://pagens-email-triage.netlify.app — auto-deploys from `main` on GitHub.
 
@@ -6,7 +6,7 @@ A phone-first app for working through the **Pending** queue in the Email Triage 
 
 ## Files
 
-- `index.html` — the whole app (HTML, CSS, plain JavaScript; no external libraries)
+- `index.html` — the whole app (HTML, CSS, plain JavaScript). Its only outside dependency is two Google Fonts (DM Sans, Source Serif 4), which the service worker caches for offline; it falls back to system fonts if they can't load
 - `sw.js` — service worker (network-first, so new deploys appear on next open; cached copy used offline)
 - `manifest.webmanifest`, `icons/` — home-screen install
 - `netlify.toml` — publish settings and headers
