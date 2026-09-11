@@ -149,6 +149,36 @@
             margin-bottom: 1rem;
             font-size: 0.875rem;
         }
+        .setup-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+        }
+        .setup-card h2 { font-size: 1.5rem; margin-bottom: 1rem; color: #0056b3; }
+        .setup-card p { font-size: 0.875rem; color: #64748b; margin-bottom: 1rem; line-height: 1.6; }
+        .setup-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+            font-family: monospace;
+        }
+        .setup-input:focus { outline: none; border-color: #0056b3; }
+        .setup-btn {
+            width: 100%;
+            padding: 1rem;
+            background: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .setup-btn:active { opacity: 0.8; }
     </style>
 </head>
 <body>
@@ -200,9 +230,17 @@
             const [index, setIndex] = useState(0);
             const [modal, setModal] = useState(null);
             const [selectedCat, setSelectedCat] = useState(null);
+            const [patInput, setPatInput] = useState('');
+            const [hasPAT, setHasPAT] = useState(false);
 
             useEffect(() => {
-                loadData();
+                const existingPAT = localStorage.getItem('airtable_pat');
+                if (existingPAT) {
+                    setHasPAT(true);
+                    loadData();
+                } else {
+                    setLoading(false);
+                }
                 window.addEventListener('online', () => setOnline(true));
                 window.addEventListener('offline', () => setOnline(false));
             }, []);
@@ -255,6 +293,38 @@
             function showToast(msg, type) {
                 setToast({ msg, type });
                 setTimeout(() => setToast(null), 3000);
+            }
+
+            async function handleSavePAT() {
+                if (!patInput.trim()) {
+                    showToast('Please enter your Airtable PAT', 'error');
+                    return;
+                }
+                localStorage.setItem('airtable_pat', patInput);
+                setHasPAT(true);
+                setLoading(true);
+                await loadData();
+            }
+
+            if (!hasPAT) {
+                return React.createElement('div', { className: 'content' },
+                    React.createElement('div', { className: 'setup-card' },
+                        React.createElement('h2', null, '🔑 Setup Required'),
+                        React.createElement('p', null, 'Enter your Airtable Personal Access Token to get started.'),
+                        React.createElement('p', null, React.createElement('strong', null, 'Steps:')),
+                        React.createElement('p', null, '1. Go to airtable.com → Account → Personal access tokens'),
+                        React.createElement('p', null, '2. Create a token with data.records:read and data.records:write'),
+                        React.createElement('p', null, '3. Paste it below:'),
+                        React.createElement('input', {
+                            type: 'password',
+                            className: 'setup-input',
+                            placeholder: 'patXXXXXXXXXXXXXX',
+                            value: patInput,
+                            onChange: (e) => setPatInput(e.target.value)
+                        }),
+                        React.createElement('button', { className: 'setup-btn', onClick: handleSavePAT }, 'Save & Continue')
+                    )
+                );
             }
 
             if (loading) return React.createElement('div', { className: 'content' }, 'Loading...');
