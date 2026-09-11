@@ -2,7 +2,7 @@
 // Network-first for the app's own files, so a new deploy shows up on the next
 // open while online; the cached copy is only used when the network fails.
 // Airtable API calls are never intercepted.
-const CACHE = 'pigeonhole-1.2.0';
+const CACHE = 'pigeonhole-1.2.1';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 

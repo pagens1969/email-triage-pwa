@@ -84,7 +84,7 @@
   .btn.primary { background: var(--accent); color: var(--on-accent); }
   .btn.primary:active { background: var(--accent-press); }
   .btn.ghost { background: var(--surface-2); color: var(--ink); margin-top: .6rem; }
-  .field { width: 100%; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); font: 15px ui-monospace, Menlo, monospace; margin-bottom: .7rem; }
+  .field { width: 100%; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); font: 16px ui-monospace, Menlo, monospace; margin-bottom: .7rem; }
   .field:focus { outline: 2px solid var(--accent); border-color: transparent; }
   .error-text { color: var(--danger); font-size: .88rem; margin-bottom: .7rem; }
   .note { font-size: .82rem; color: var(--muted); text-align: center; margin-top: 1.1rem; line-height: 1.45; }
@@ -249,7 +249,7 @@ function showFatal(msg) {
 window.addEventListener('error', function (e) { showFatal(e.message || 'script error'); });
 window.addEventListener('unhandledrejection', function (e) { showFatal((e.reason && e.reason.message) || String(e.reason)); });
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.1';
 const BASE = 'appxjiuh85jwY8bKO';
 const TABLE = { CATEGORIES: 'tblcfRSlMxBl5d0Yu', PENDING: 'tbl6xMBhSmwZG1VFp' };
 
@@ -298,6 +298,57 @@ function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return n
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* storage unavailable */ } }
 function getPat() { return (lsGet(PAT_KEY) || '').trim(); }
+
+// The token lives in localStorage and is mirrored into IndexedDB, so if one of them is
+// ever cleared the other restores it. We also ask the browser to treat this site's storage
+// as persistent (not evicted under storage pressure).
+const TokenStore = (() => {
+  let dbp = null;
+  function db() {
+    if (!dbp) {
+      dbp = new Promise((resolve, reject) => {
+        const r = indexedDB.open('pigeonhole-settings', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('kv');
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+    }
+    return dbp;
+  }
+  async function op(mode, fn) {
+    const d = await db();
+    return new Promise((resolve, reject) => {
+      const tx = d.transaction('kv', mode);
+      const req = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => resolve(req ? req.result : undefined);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  return {
+    async save(v) {
+      lsSet(PAT_KEY, v); lsDel('triage.pat.removed');
+      try { await op('readwrite', (s) => s.put(v, 'pat')); } catch (e) { /* IndexedDB unavailable */ }
+      persistStorage();
+    },
+    async clear() {
+      lsDel(PAT_KEY); lsSet('triage.pat.removed', '1'); // remembered instantly, so a half-finished clear can't bring the token back
+      try { await op('readwrite', (s) => s.delete('pat')); } catch (e) { /* IndexedDB unavailable */ }
+    },
+    // On start-up: whichever copy survived restores the other.
+    async restore() {
+      let idb = '';
+      try { idb = (await op('readonly', (s) => s.get('pat'))) || ''; } catch (e) { /* IndexedDB unavailable */ }
+      const ls = getPat();
+      if (!ls && lsGet('triage.pat.removed')) { try { await op('readwrite', (s) => s.delete('pat')); } catch (e) { /* ignore */ } return; }
+      if (!ls && idb) lsSet(PAT_KEY, idb);
+      else if (ls && ls !== idb) { try { await op('readwrite', (s) => s.put(ls, 'pat')); } catch (e) { /* ignore */ } }
+      if (getPat()) persistStorage();
+    },
+  };
+})();
+function persistStorage() {
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* not supported */ }
+}
 function ago(iso) {
   const t = Date.parse(iso);
   if (!t) return '';
@@ -603,7 +654,7 @@ function viewSetup() {
     (S.setupError ? '<div class="error-text">' + esc(S.setupError) + '</div>' : '') +
     '<button class="btn primary" data-act="save-token"' + (S.setupBusy ? ' disabled' : '') + '>' + (S.setupBusy ? 'Checking…' : 'Save & continue') + '</button>' +
     (getPat() ? '<button class="btn ghost" data-act="home">Cancel</button>' : '') +
-    '<p class="note" style="margin-top:.9rem">Stored only on this device.</p>' +
+    '<p class="note" style="margin-top:.9rem">Saved on this device, so you only enter it once. On iPhone the home-screen app and Safari keep separate storage, so enter it inside the home-screen app.</p>' +
     '</div>';
 }
 
@@ -786,7 +837,7 @@ async function saveToken() {
   S.setupBusy = true; render();
   try {
     await airtable(TABLE.CATEGORIES, { pat: v, params: new URLSearchParams({ pageSize: '1', returnFieldsByFieldId: 'true' }) });
-    lsSet(PAT_KEY, v);
+    await TokenStore.save(v);
     S.setupBusy = false; S.loadError = '';
     $('#pat-input').value = '';
     go('home');
@@ -844,7 +895,7 @@ document.addEventListener('click', async (ev) => {
     }
     case 'change-token': S.setupError = ''; return go('setup');
     case 'forget-token':
-      lsDel(PAT_KEY); lsDel(CACHE_KEY); lsDel(OVERRIDE_KEY); S.queue = []; S.categories = []; S.overrides = {}; S.lastLoaded = 0; S.setupError = '';
+      await TokenStore.clear(); lsDel(CACHE_KEY); lsDel(OVERRIDE_KEY); S.queue = []; S.categories = []; S.overrides = {}; S.lastLoaded = 0; S.setupError = '';
       return go('setup');
     case 'sync-now': return flush();
     case 'retry': {
@@ -879,6 +930,7 @@ document.addEventListener('visibilitychange', () => {
 (async function boot() {
   try { await refreshOutbox(); } catch (e) { S.outbox = []; }
   loadCache();
+  try { await TokenStore.restore(); } catch (e) { /* keep going with whatever localStorage has */ }
   if (!getPat()) { go('setup'); return; }
   go('home');
   await loadData();
