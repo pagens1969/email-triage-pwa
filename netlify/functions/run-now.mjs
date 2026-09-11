@@ -2,7 +2,7 @@
 // The routine applies decisions made in Pigeonhole to Gmail and sweeps new inbox mail into Pending.
 //
 // Setup (Netlify → Site configuration → Environment variables):
-//   ROUTINE_TOKEN  the routine's API trigger token (claude.ai/code/routines → Email Triage → Edit → Add another trigger → API → Generate token)
+//   ROUTINE_TOKEN  the routine's API trigger token (claude.ai/code/routines → Pigeonhole – Run sweep now → Edit → API trigger → Generate token)
 //   ROUTINE_ID     optional; defaults to the Email Triage routine below
 //
 // Only a caller holding a working Airtable token for the Email Triage base can start a run,
@@ -10,7 +10,9 @@
 
 const BASE = 'appxjiuh85jwY8bKO';
 const CATEGORIES_TABLE = 'tblcfRSlMxBl5d0Yu';
-const DEFAULT_ROUTINE_ID = 'trig_01Kp6hQsTuFQvCnqbUjaUzZ1';
+// The "Pigeonhole – Run sweep now" routine (claude.ai/code/routines) — an API-triggered copy of
+// the scheduled Cowork task's instructions. Cowork scheduled tasks can't have API triggers.
+const DEFAULT_ROUTINE_ID = 'trig_01UZUnQjiLDzB5khTm65zdSi';
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });

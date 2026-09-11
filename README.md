@@ -22,9 +22,9 @@ The app only ever writes to rows that are still `Pending`, so it can't overwrite
 
 ## Run sweep now
 
-The **Run sweep now** button (home screen and the end of a triage session) calls `/api/run-now`, which fires the Email Triage routine via its API trigger. The run applies Reviewing decisions in Gmail and sweeps new mail into Pending, taking about 10 minutes. The app blocks it for 15 minutes after a start and around the scheduled 5am/11am/3pm/9pm runs, to avoid overlapping runs. On-demand runs count towards the account's daily routine-run allowance.
+The **Run sweep now** button (home screen and the end of a triage session) calls `/api/run-now`, which fires the routine **Pigeonhole – Run sweep now** (`trig_01UZUnQjiLDzB5khTm65zdSi`) via its API trigger. That routine is a copy of the scheduled Cowork task's instructions — Cowork scheduled tasks (the ones under "Scheduled" in the Claude sidebar) can't have API triggers, only Claude Code routines can. **Keep the two sets of instructions in step whenever either changes.** The run applies Reviewing decisions in Gmail and sweeps new mail into Pending, taking about 10 minutes. The app blocks it for 15 minutes after a start and around the scheduled 5am/11am/3pm/9pm runs, to avoid overlapping runs. On-demand runs count towards the account's daily routine-run allowance.
 
-One-time setup: claude.ai/code/routines → Email Triage → edit → Add another trigger → API → Generate token (shown once). Netlify → Site configuration → Environment variables → add `ROUTINE_TOKEN` = that token → Deploys → Trigger deploy.
+One-time setup: claude.ai/code/routines → Pigeonhole – Run sweep now → edit → API trigger → Generate token (shown once). Netlify → Site configuration → Environment variables → add `ROUTINE_TOKEN` = that token → Deploys → Trigger deploy. `ROUTINE_ID` can be set to override the routine.
 
 ## Airtable field IDs (Pending table `tbl6xMBhSmwZG1VFp`)
 
