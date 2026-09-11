@@ -93,6 +93,16 @@
   .hero { padding: 1.6rem .25rem 1.4rem; }
   .hero .num { font-family: var(--serif); font-size: 4.2rem; font-weight: 600; line-height: 1; letter-spacing: -.03em; }
   .hero .lbl { color: var(--muted); font-size: 1.05rem; margin-top: .35rem; }
+  .run { display: flex; align-items: center; gap: .85rem; width: 100%; text-align: left; margin-top: .75rem; padding: .9rem 1rem; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); transition: transform .12s var(--ease-out); }
+  .run:active:not(:disabled) { transform: scale(.98); }
+  .run .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+  .run .tx { flex: 1; min-width: 0; }
+  .run b { display: block; font-weight: 600; }
+  .run span { display: block; font-size: .8rem; color: var(--muted); }
+  .run.spin .ic svg { animation: spin 1.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .run:disabled { opacity: .75; }
+  .run-err { color: var(--danger); font-size: .82rem; margin-top: .45rem; padding: 0 .2rem; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: 1rem 0 .2rem; }
   .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: .85rem 1rem; }
   .stat b { display: block; font-size: 1.2rem; font-weight: 600; }
@@ -249,7 +259,7 @@ function showFatal(msg) {
 window.addEventListener('error', function (e) { showFatal(e.message || 'script error'); });
 window.addEventListener('unhandledrejection', function (e) { showFatal((e.reason && e.reason.message) || String(e.reason)); });
 
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.3.0';
 const BASE = 'appxjiuh85jwY8bKO';
 const TABLE = { CATEGORIES: 'tblcfRSlMxBl5d0Yu', PENDING: 'tbl6xMBhSmwZG1VFp' };
 
@@ -274,6 +284,9 @@ const DELETE_REASONS = ['Spam', 'Unwanted newsletter', 'Duplicate', 'Already han
 const PAT_KEY = 'airtable_pat';
 const CACHE_KEY = 'triage.cache.v1';
 const OVERRIDE_KEY = 'triage.overrides.v1';
+const LAST_RUN_KEY = 'pigeonhole.lastRun';
+const RUN_COOLDOWN_MS = 15 * 60 * 1000;
+const SCHEDULE = [{ m: 300, label: '5am' }, { m: 660, label: '11am' }, { m: 900, label: '3pm' }, { m: 1260, label: '9pm' }]; // UK times of the scheduled task
 
 // ---------- icons ----------
 const I = {
@@ -286,6 +299,7 @@ const I = {
   skip: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h12M13 6l6 6-6 6"/></svg>',
   trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>',
   bin: '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><g class="lid"><path d="M3 6h18"/><path d="M9 6V4h6v2"/></g><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/><path d="M10 11v6M14 11v6"/></svg>',
+  bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>',
 };
 
@@ -505,6 +519,8 @@ const S = {
   enter: false,          // next render should animate the top card in
   pulseChip: false,
   sessionTotal: 0,       // queue size when this triage session started (for the progress bar)
+  runBusy: false,        // Run sweep request in flight
+  runError: '',
 };
 
 function saveCache() {
@@ -620,6 +636,69 @@ async function flush() {
   }
 }
 
+// ---------- run sweep now ----------
+// Starts the scheduled Email Triage task straight away (via /api/run-now): it applies
+// decisions made here to Gmail and pulls new inbox mail into the queue.
+function lastRun() { return Number(lsGet(LAST_RUN_KEY) || 0); }
+function londonMinutes(now) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now || new Date());
+  const get = (t) => Number((parts.find((x) => x.type === t) || {}).value || 0);
+  return get('hour') * 60 + get('minute');
+}
+// Don't start a run just before or while a scheduled one is going — overlapping runs have caused duplicates before.
+function scheduleClash() {
+  const m = londonMinutes();
+  for (const s of SCHEDULE) {
+    let diff = s.m - m;
+    if (diff < -720) diff += 1440;
+    if (diff > 720) diff -= 1440;
+    if (diff > 0 && diff <= 20) return 'The ' + s.label + ' run starts in ' + diff + ' min and will do this for you';
+    if (diff <= 0 && diff > -15) return 'The ' + s.label + ' scheduled run is under way';
+  }
+  return '';
+}
+function runState() {
+  if (S.runBusy) return { disabled: true, spin: true, sub: 'Starting…' };
+  const since = Date.now() - lastRun();
+  if (lastRun() && since < RUN_COOLDOWN_MS) return { disabled: true, spin: true, sub: 'Started ' + timeOfDay(lastRun()) + ' · new emails appear here as it finishes' };
+  const clash = scheduleClash();
+  if (clash) return { disabled: true, spin: false, sub: clash };
+  if (!S.online) return { disabled: true, spin: false, sub: 'You’re offline' };
+  return { disabled: false, spin: false, sub: 'Files your decisions in Gmail and pulls in new emails' };
+}
+let refreshTimers = [];
+async function runSweep() {
+  if (S.runBusy || runState().disabled) return;
+  S.runBusy = true; S.runError = ''; render();
+  try {
+    await flush(); // make sure every decision is in Airtable before the run reads it
+    if (S.outbox.some((d) => d.status !== 'error')) throw new Error('Some decisions haven’t synced yet — try again in a moment.');
+    let res;
+    try {
+      res = await fetch('/api/run-now', { method: 'POST', headers: { Authorization: 'Bearer ' + getPat() }, cache: 'no-store' });
+    } catch (e) { throw new Error('Couldn’t reach the server (offline?).'); }
+    let body = {};
+    try { body = await res.json(); } catch (e) { /* no JSON */ }
+    if (res.status === 503 || res.status === 404) throw new Error('Run now needs a one-time setup — see Settings.');
+    if (res.status === 401 || res.status === 403) throw new Error('Airtable rejected your token — check it in Settings.');
+    if (!res.ok) throw new Error('Couldn’t start the run' + (body.status ? ' (' + body.status + ')' : '') + '. You may have hit the daily run limit — the next scheduled run will catch up.');
+    lsSet(LAST_RUN_KEY, String(Date.now()));
+    toast('Sweep started — about 10 minutes');
+    refreshTimers.forEach(clearTimeout);
+    refreshTimers = [4, 8, 12, 16].map((min) => setTimeout(() => { if (!S.busy && (S.view === 'home' || (S.view === 'triage' && !S.queue.length))) loadData(); }, min * 60000));
+  } catch (e) {
+    S.runError = e.message;
+  } finally {
+    S.runBusy = false; render();
+  }
+}
+function runButton() {
+  const st = runState();
+  return '<button class="run' + (st.spin ? ' spin' : '') + '" data-act="run-now"' + (st.disabled ? ' disabled' : '') + '>' +
+    '<span class="ic">' + (st.spin ? I.refresh : I.bolt) + '</span><span class="tx"><b>Run sweep now</b><span>' + esc(st.sub) + '</span></span></button>' +
+    (S.runError ? '<div class="run-err">' + esc(S.runError) + '</div>' : '');
+}
+
 // ---------- rendering ----------
 function renderChrome() {
   const pill = $('#net-pill');
@@ -666,11 +745,12 @@ function viewHome() {
   h += n
     ? '<button class="btn primary" data-act="start">Start triage</button>'
     : '<div class="panel" style="text-align:center"><h2>All clear</h2><p>Nothing waiting for review right now.</p></div>';
+  h += runButton();
   h += '<div class="stats">' +
     '<div class="stat"><b>' + S.outbox.length + '</b><span>Waiting to sync</span></div>' +
     '<div class="stat"><b>' + timeOfDay(S.lastLoaded) + '</b><span>Last refreshed</span></div></div>';
   h += '<button class="btn ghost" data-act="refresh"' + (S.loading ? ' disabled' : '') + '>' + I.refresh + (S.loading ? 'Refreshing…' : 'Refresh') + '</button>';
-  h += '<p class="note">Decisions save to Airtable straight away and are applied in Gmail at the next scheduled run (5am, 11am, 3pm, 9pm).</p>';
+  h += '<p class="note">Decisions save to Airtable straight away. Gmail catches up at the next scheduled run (5am, 11am, 3pm, 9pm) — or tap Run sweep now.</p>';
   return h;
 }
 
@@ -699,8 +779,8 @@ function viewTriage() {
   const e = S.queue[0];
   let h = banners();
   if (!e) {
-    return h + '<div class="done"><div class="big">✓</div><h2>All done</h2><p>You’ve worked through the queue.</p>' +
-      '<button class="btn primary" data-act="home">Back to home</button></div>';
+    return h + '<div class="done"><div class="big">✓</div><h2>All done</h2><p>You’ve worked through the queue. Gmail updates at the next scheduled run, or now:</p>' +
+      runButton() + '<button class="btn ghost" data-act="home" style="margin-top:1rem">Back to home</button></div>';
   }
   const total = Math.max(S.sessionTotal, S.queue.length);
   const doneCount = total - S.queue.length;
@@ -736,6 +816,8 @@ function viewSettings() {
   });
   if (S.outbox.length) h += '<button class="btn ghost" data-act="sync-now"' + (S.syncing ? ' disabled' : '') + '>Sync now</button>';
   h += '</div>';
+  h += '<div class="panel"><h2>Run sweep now</h2><p>Starts your Email Triage task straight away. Last started: <b>' + (lastRun() ? new Date(lastRun()).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : 'never') + '</b>.</p>' +
+    '<p>One-time setup: in claude.ai/code/routines open <b>Email Triage</b> → edit → <b>Add another trigger</b> → <b>API</b> → <b>Generate token</b>. Then in Netlify → Site configuration → Environment variables add <b>ROUTINE_TOKEN</b> with that token, and redeploy.</p></div>';
   h += '<p class="note">Pigeonhole v' + APP_VERSION + ' · base ' + BASE + '</p>';
   return h;
 }
@@ -898,6 +980,7 @@ document.addEventListener('click', async (ev) => {
       await TokenStore.clear(); lsDel(CACHE_KEY); lsDel(OVERRIDE_KEY); S.queue = []; S.categories = []; S.overrides = {}; S.lastLoaded = 0; S.setupError = '';
       return go('setup');
     case 'sync-now': return flush();
+    case 'run-now': return runSweep();
     case 'retry': {
       const d = S.outbox.find((x) => x.recordId === el.dataset.id);
       if (d) { d.status = 'queued'; d.error = ''; d.attempts = 0; await Outbox.put(d); await refreshOutbox(); render(); flush(); }
@@ -922,6 +1005,8 @@ document.addEventListener('keydown', (ev) => {
 });
 window.addEventListener('online', () => { S.online = true; if (!S.busy) render(); flush(); });
 window.addEventListener('offline', () => { S.online = false; if (!S.busy) render(); });
+// Keep time-based labels (Run sweep cooldown, scheduled-run warnings) current while the app sits open.
+setInterval(() => { if (!S.busy && !S.sheet && (S.view === 'home' || (S.view === 'triage' && !S.queue.length))) render(); }, 60000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && S.online) flush();
 });

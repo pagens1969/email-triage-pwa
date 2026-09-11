@@ -10,6 +10,7 @@ A phone-first app for working through the **Pending** queue in the Email Triage 
 - `sw.js` — service worker (network-first, so new deploys appear on next open; cached copy used offline)
 - `manifest.webmanifest`, `icons/` — home-screen install
 - `netlify.toml` — publish settings and headers
+- `netlify/functions/run-now.mjs` — `POST /api/run-now`: starts the Email Triage routine on demand (needs the `ROUTINE_TOKEN` environment variable in Netlify; only callers with a working Airtable token for the base can use it)
 
 ## How a decision flows
 
@@ -18,6 +19,12 @@ A phone-first app for working through the **Pending** queue in the Email Triage 
 3. The scheduled triage task (5am / 11am / 3pm / 9pm UK) applies Reviewing rows in Gmail, updates the Senders learning table, and sets `Status = Filed`.
 
 The app only ever writes to rows that are still `Pending`, so it can't overwrite something already filed from the Sorting Desk.
+
+## Run sweep now
+
+The **Run sweep now** button (home screen and the end of a triage session) calls `/api/run-now`, which fires the Email Triage routine via its API trigger. The run applies Reviewing decisions in Gmail and sweeps new mail into Pending, taking about 10 minutes. The app blocks it for 15 minutes after a start and around the scheduled 5am/11am/3pm/9pm runs, to avoid overlapping runs. On-demand runs count towards the account's daily routine-run allowance.
+
+One-time setup: claude.ai/code/routines → Email Triage → edit → Add another trigger → API → Generate token (shown once). Netlify → Site configuration → Environment variables → add `ROUTINE_TOKEN` = that token → Deploys → Trigger deploy.
 
 ## Airtable field IDs (Pending table `tbl6xMBhSmwZG1VFp`)
 
