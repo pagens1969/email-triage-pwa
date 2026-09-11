@@ -1,0 +1,14 @@
+# No build step: the site is the files in this folder as-is.
+[build]
+  publish = "."
+
+# Always re-check the service worker so new versions roll out promptly.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
