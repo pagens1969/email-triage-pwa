@@ -86,6 +86,14 @@
   .btn.ghost { background: var(--surface-2); color: var(--ink); margin-top: .6rem; }
   .field { width: 100%; padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); font: 16px ui-monospace, Menlo, monospace; margin-bottom: .7rem; }
   .field:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .field.sans { font: 16px var(--sans); }
+  .disp-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-bottom: .7rem; }
+  .dpill { padding: .65rem .5rem; border-radius: 12px; background: var(--surface-2); font-weight: 600; font-size: .88rem; text-align: center; border: 2px solid transparent; transition: transform .1s; }
+  .dpill:active { transform: scale(.96); }
+  .dpill.Archive.sel { background: var(--info-soft); color: var(--info); border-color: var(--info); }
+  .dpill.Keep.sel { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+  .dpill.Delete.sel { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+  .opt.new-cat { color: var(--accent); }
   .error-text { color: var(--danger); font-size: .88rem; margin-bottom: .7rem; }
   .note { font-size: .82rem; color: var(--muted); text-align: center; margin-top: 1.1rem; line-height: 1.45; }
 
@@ -226,6 +234,10 @@
   .list-item:first-of-type { border-top: 0; }
   .list-item .meta { color: var(--muted); font-size: .8rem; }
   .list-item .err { color: var(--danger); font-size: .8rem; }
+  .cat-item { display: flex; align-items: center; justify-content: space-between; gap: .6rem; width: 100%; text-align: left; }
+  .cat-item .grow { flex: 1; min-width: 0; }
+  .cat-item b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-item .meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini { font-size: .82rem; font-weight: 600; color: var(--accent); margin-right: 1rem; padding: .35rem 0; }
   .mini.danger { color: var(--danger); }
 
@@ -259,9 +271,9 @@ function showFatal(msg) {
 window.addEventListener('error', function (e) { showFatal(e.message || 'script error'); });
 window.addEventListener('unhandledrejection', function (e) { showFatal((e.reason && e.reason.message) || String(e.reason)); });
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const BASE = 'appxjiuh85jwY8bKO';
-const TABLE = { CATEGORIES: 'tblcfRSlMxBl5d0Yu', PENDING: 'tbl6xMBhSmwZG1VFp' };
+const TABLE = { CATEGORIES: 'tblcfRSlMxBl5d0Yu', PENDING: 'tbl6xMBhSmwZG1VFp', SENDERS: 'tblYmI2Da9Kvue9iu' };
 
 // Pending table field IDs. Airtable's display names for the first three are
 // mislabelled; these IDs match what the scheduled triage task actually writes.
@@ -280,7 +292,11 @@ const P = {
   DECIDED_AT: 'fldKZH0X2jDoEMNuJ',
 };
 const C = { NAME: 'fldacsrbrqKJhP5HT', LABEL: 'flde1THJbFcZRR2rB', DISPOSITION: 'fld5LXzRufnzKQbvA', NOTES: 'fldR2WFT0gq7rdyDf' };
+// Sender Rules' Category field holds plain text, not a link -- so renaming a category has to be
+// pushed to every matching row here by hand, or those senders silently stop matching anything.
+const SR = { CATEGORY: 'fldxvVNdI0geVD47z' };
 const DELETE_REASONS = ['Spam', 'Unwanted newsletter', 'Duplicate', 'Already handled'];
+const DISPOSITIONS = ['Archive', 'Keep', 'Delete'];
 const PAT_KEY = 'airtable_pat';
 const CACHE_KEY = 'triage.cache.v1';
 const OVERRIDE_KEY = 'triage.overrides.v1';
@@ -301,6 +317,7 @@ const I = {
   bin: '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><g class="lid"><path d="M3 6h18"/><path d="M9 6V4h6v2"/></g><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/><path d="M10 11v6M14 11v6"/></svg>',
   bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>',
+  plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
 };
 
 // ---------- small helpers ----------
@@ -512,7 +529,8 @@ const S = {
   lastLoaded: 0,
   online: navigator.onLine,
   syncing: false,
-  sheet: null,           // { type: 'category' | 'delete' | 'confirm', reason }
+  sheet: null,           // { type: 'category' | 'delete' | 'confirm' | 'new-category' | 'edit-category', ... }
+  sheetJustOpened: false, // one-shot: true for the render right after a category form sheet opens, so its input can be pre-filled without clobbering what's since been typed
   setupError: '',
   setupBusy: false,
   busy: false,           // a card animation is running
@@ -818,6 +836,13 @@ function viewSettings() {
   h += '</div>';
   h += '<div class="panel"><h2>Run sweep now</h2><p>Starts your Email Triage task straight away. Last started: <b>' + (lastRun() ? new Date(lastRun()).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : 'never') + '</b>.</p>' +
     '<p>One-time setup: in claude.ai/code/routines open <b>Email Triage</b> → edit → <b>Add another trigger</b> → <b>API</b> → <b>Generate token</b>. Then in Netlify → Site configuration → Environment variables add <b>ROUTINE_TOKEN</b> with that token, and redeploy.</p></div>';
+  h += '<div class="panel"><h2>Categories</h2>';
+  S.categories.forEach((c) => {
+    h += '<button class="list-item cat-item" data-act="edit-category" data-id="' + esc(c.id) + '">' +
+      '<span class="grow"><b>' + esc(c.name) + '</b><span class="meta">' + esc(c.label || 'No Gmail label yet') + '</span></span>' +
+      (c.disposition ? '<span class="disp ' + esc(c.disposition) + '">' + esc(c.disposition) + '</span>' : '') + '</button>';
+  });
+  h += '<button class="btn ghost" data-act="open-new-category" data-from="settings">Add category</button></div>';
   h += '<p class="note">Pigeonhole v' + APP_VERSION + ' · base ' + BASE + '</p>';
   return h;
 }
@@ -840,6 +865,8 @@ function viewSheet() {
         (c.notes ? '<span class="desc">' + esc(c.notes) + '</span>' : '') + '</span>' +
         (c.disposition ? '<span class="disp ' + esc(c.disposition) + '">' + esc(c.disposition) + '</span>' : '') + '</button>';
     });
+    inner += '<button class="opt new-cat" data-act="open-new-category" data-from="card"><span class="tick">' + I.plus + '</span>' +
+      '<span class="grow"><span class="name">New category</span></span></button>';
   } else if (sh.type === 'delete') {
     inner += '<div class="sheet-head"><h3>Why delete this?</h3><button class="close" data-act="close" aria-label="Close">' + I.close + '</button></div>';
     DELETE_REASONS.forEach((r) => {
@@ -849,6 +876,19 @@ function viewSheet() {
     inner += '<div class="confirm"><div class="bin-icon">' + I.trash + '</div><h3>Delete as ' + esc(sh.reason) + '?</h3>' +
       '<p>It goes to the Gmail Bin at the next scheduled run.</p>' +
       '<div class="row"><button class="btn ghost" style="margin:0" data-act="close">Cancel</button><button class="btn danger" data-act="confirm-delete">Delete</button></div></div>';
+  } else if (sh.type === 'new-category' || sh.type === 'edit-category') {
+    const isEdit = sh.type === 'edit-category';
+    inner += '<div class="sheet-head"><h3>' + (isEdit ? 'Edit category' : 'New category') + '</h3><button class="close" data-act="close" aria-label="Close">' + I.close + '</button></div>' +
+      '<input class="field sans" id="cat-name-input" type="text" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Category name" maxlength="60">' +
+      '<div class="disp-picker">' + DISPOSITIONS.map((d) =>
+        '<button class="dpill ' + d + (sh.disposition === d ? ' sel' : '') + '" data-act="set-disposition" data-value="' + d + '">' + d + '</button>'
+      ).join('') + '</div>' +
+      (sh.error ? '<div class="error-text">' + esc(sh.error) + '</div>' : '') +
+      '<p class="note" style="margin-top:.3rem;text-align:left">' + (isEdit
+        ? 'Renaming updates every sender rule already learned under this name. The Gmail label keeps its current wording.'
+        : 'Files immediately. The Gmail label is created at the next scheduled run (5am, 11am, 3pm, 9pm).') + '</p>' +
+      '<button class="btn primary" style="margin-top:.9rem" data-act="' + (isEdit ? 'save-category' : 'create-category') + '"' + (sh.busy ? ' disabled' : '') + '>' +
+      (sh.busy ? 'Saving…' : (isEdit ? 'Save' : 'Create')) + '</button>';
   }
   return '<div class="overlay" data-act="overlay"><div class="sheet" role="dialog" aria-modal="true">' + inner + '</div></div>';
 }
@@ -862,11 +902,13 @@ function render() {
   else if (S.view === 'settings') h = viewSettings();
   else h = '<p class="boot">Loading…</p>';
   const typed = $('#pat-input') ? $('#pat-input').value : '';
+  const catTyped = $('#cat-name-input') ? $('#cat-name-input').value : '';
   const sheetScroll = $('.sheet') ? $('.sheet').scrollTop : 0;
   $('#app').innerHTML = h;
   if ($('#pat-input')) { $('#pat-input').value = typed; }
+  if ($('#cat-name-input')) { $('#cat-name-input').value = S.sheetJustOpened ? (S.sheet && S.sheet.name != null ? S.sheet.name : '') : catTyped; }
   if ($('.sheet') && sheetScroll) $('.sheet').scrollTop = sheetScroll;
-  S.enter = false; S.pulseChip = false;
+  S.enter = false; S.pulseChip = false; S.sheetJustOpened = false;
 }
 
 function go(view) {
@@ -934,6 +976,70 @@ async function saveToken() {
   }
 }
 
+async function createCategory() {
+  const sh = S.sheet;
+  const input = $('#cat-name-input');
+  const name = (input ? input.value : '').trim();
+  if (!name) { sh.error = 'Give it a name.'; return render(); }
+  if (!sh.disposition) { sh.error = 'Choose Archive, Keep, or Delete.'; return render(); }
+  if (categoryByName(name)) { sh.error = 'A category called “' + name + '” already exists.'; return render(); }
+  sh.busy = true; sh.error = ''; render();
+  try {
+    const fields = {}; fields[C.NAME] = name; fields[C.DISPOSITION] = sh.disposition;
+    const res = await airtable(TABLE.CATEGORIES, { method: 'POST', body: { records: [{ fields }] } });
+    const cat = mapCategory(res.records[0]);
+    S.categories = S.categories.concat([cat]).sort((a, b) => a.name.localeCompare(b.name));
+    const fromCard = sh.from === 'card';
+    const cardEmail = S.queue[0];
+    S.sheet = null;
+    if (fromCard && cardEmail) S.overrides[cardEmail.id] = cat.name;
+    saveCache();
+    toast('“' + cat.name + '” created — Gmail label is set up at the next scheduled run');
+    render();
+  } catch (e) {
+    sh.busy = false; sh.error = e.message; render();
+  }
+}
+async function saveCategoryEdit() {
+  const sh = S.sheet;
+  const cat = S.categories.find((c) => c.id === sh.id);
+  if (!cat) { S.sheet = null; return render(); }
+  const input = $('#cat-name-input');
+  const newName = (input ? input.value : '').trim();
+  if (!newName) { sh.error = 'Give it a name.'; return render(); }
+  if (!sh.disposition) { sh.error = 'Choose Archive, Keep, or Delete.'; return render(); }
+  const dupe = categoryByName(newName);
+  if (dupe && dupe.id !== cat.id) { sh.error = 'Another category is already called “' + newName + '”.'; return render(); }
+  const oldName = cat.name;
+  const renamed = newName !== oldName;
+  sh.busy = true; sh.error = ''; render();
+  try {
+    const fields = {}; fields[C.NAME] = newName; fields[C.DISPOSITION] = sh.disposition;
+    await airtable(TABLE.CATEGORIES, { method: 'PATCH', body: { records: [{ id: cat.id, fields }] } });
+    let fixed = 0;
+    if (renamed) {
+      const rows = await listAll(TABLE.SENDERS);
+      const toFix = rows.filter((r) => ((r.fields || {})[SR.CATEGORY] || '') === oldName);
+      for (let i = 0; i < toFix.length; i += 10) {
+        const chunk = toFix.slice(i, i + 10).map((r) => { const f = {}; f[SR.CATEGORY] = newName; return { id: r.id, fields: f }; });
+        await airtable(TABLE.SENDERS, { method: 'PATCH', body: { records: chunk } });
+      }
+      fixed = toFix.length;
+    }
+    cat.name = newName; cat.disposition = sh.disposition;
+    S.categories.sort((a, b) => a.name.localeCompare(b.name));
+    Object.keys(S.overrides).forEach((id) => { if (S.overrides[id] === oldName) S.overrides[id] = newName; });
+    saveCache();
+    S.sheet = null;
+    toast(renamed
+      ? '“' + oldName + '” renamed to “' + newName + '”' + (fixed ? ' · updated ' + fixed + ' learned sender rule' + (fixed > 1 ? 's' : '') : '')
+      : 'Saved');
+    render();
+  } catch (e) {
+    sh.busy = false; sh.error = e.message; render();
+  }
+}
+
 document.addEventListener('click', async (ev) => {
   const el = ev.target.closest('[data-act]');
   if (!el) return;
@@ -975,6 +1081,22 @@ document.addEventListener('click', async (ev) => {
       await closeSheet(); render();
       return withCard('delete', () => decide(e, { action: 'Delete', reason }));
     }
+    case 'open-new-category':
+      S.sheet = { type: 'new-category', name: '', disposition: '', from: el.dataset.from || 'settings', error: '', busy: false };
+      S.sheetJustOpened = true;
+      return render();
+    case 'edit-category': {
+      const cat = S.categories.find((c) => c.id === el.dataset.id);
+      if (!cat) return;
+      S.sheet = { type: 'edit-category', id: cat.id, name: cat.name, disposition: cat.disposition || '', error: '', busy: false };
+      S.sheetJustOpened = true;
+      return render();
+    }
+    case 'set-disposition':
+      if (S.sheet) { S.sheet.disposition = el.dataset.value; S.sheet.error = ''; }
+      return render();
+    case 'create-category': return createCategory();
+    case 'save-category': return saveCategoryEdit();
     case 'change-token': S.setupError = ''; return go('setup');
     case 'forget-token':
       await TokenStore.clear(); lsDel(CACHE_KEY); lsDel(OVERRIDE_KEY); S.queue = []; S.categories = []; S.overrides = {}; S.lastLoaded = 0; S.setupError = '';
